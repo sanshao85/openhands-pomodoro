@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>番茄钟</title>
+<style>
+  :root {
+    --bg: #1b1d2a;
+    --panel: #262a3d;
+    --text: #f2f4ff;
+    --muted: #9aa0c0;
+    --focus: #ff6b6b;
+    --break: #4ecdc4;
+    --accent: var(--focus);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+                 "Hiragino Sans GB", "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(circle at 50% 0%, #2b3050 0%, var(--bg) 60%);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app {
+    width: 100%;
+    max-width: 420px;
+    background: var(--panel);
+    border-radius: 24px;
+    padding: 32px 28px 28px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+    text-align: center;
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 2px;
+  }
+  .modes {
+    display: inline-flex;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    padding: 4px;
+    margin: 18px 0 22px;
+    gap: 4px;
+  }
+  .modes span {
+    padding: 6px 18px;
+    border-radius: 999px;
+    font-size: 14px;
+    color: var(--muted);
+    transition: all 0.25s ease;
+  }
+  .modes span.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  .dial {
+    position: relative;
+    width: 240px;
+    height: 240px;
+    margin: 0 auto;
+  }
+  .dial svg { transform: rotate(-90deg); }
+  .dial .track { stroke: rgba(255, 255, 255, 0.08); }
+  .dial .progress {
+    stroke: var(--accent);
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.4s linear, stroke 0.3s ease;
+  }
+  .dial .center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  #time {
+    font-size: 52px;
+    font-weight: 300;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 1px;
+  }
+  #status {
+    margin-top: 6px;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+  .controls {
+    display: flex;
+    gap: 12px;
+    margin-top: 28px;
+  }
+  button {
+    flex: 1;
+    border: none;
+    border-radius: 14px;
+    padding: 14px 0;
+    font-size: 16px;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s ease, filter 0.2s ease;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  #startBtn { background: var(--accent); color: #fff; }
+  #resetBtn { background: rgba(255, 255, 255, 0.1); color: var(--text); }
+  button:hover:not(:disabled) { filter: brightness(1.1); }
+  .stats {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .stats b { color: var(--text); font-size: 20px; margin: 0 4px; }
+  .tomatoes { margin-top: 8px; font-size: 15px; letter-spacing: 2px; min-height: 20px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>番茄钟</h1>
+
+  <div class="modes">
+    <span id="modeFocus" class="active">专注 25 分钟</span>
+    <span id="modeBreak">休息 5 分钟</span>
+  </div>
+
+  <div class="dial">
+    <svg width="240" height="240" viewBox="0 0 240 240">
+      <circle class="track" cx="120" cy="120" r="108" fill="none" stroke-width="12"></circle>
+      <circle id="progress" class="progress" cx="120" cy="120" r="108" fill="none"
+              stroke-width="12" stroke-dasharray="678.58" stroke-dashoffset="0"></circle>
+    </svg>
+    <div class="center">
+      <div id="time">25:00</div>
+      <div id="status">准备开始</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="startBtn">开始</button>
+    <button id="resetBtn">重置</button>
+  </div>
+
+  <div class="stats">
+    今天已完成 <b id="count">0</b> 个番茄
+    <div id="tomatoes" class="tomatoes"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var FOCUS_SECONDS = 25 * 60;
+  var BREAK_SECONDS = 5 * 60;
+  var STORAGE_KEY = 'pomodoro.records';
+
+  var CIRCUMFERENCE = 2 * Math.PI * 108;
+
+  var els = {
+    time: document.getElementById('time'),
+    status: document.getElementById('status'),
+    startBtn: document.getElementById('startBtn'),
+    resetBtn: document.getElementById('resetBtn'),
+    progress: document.getElementById('progress'),
+    count: document.getElementById('count'),
+    tomatoes: document.getElementById('tomatoes'),
+    modeFocus: document.getElementById('modeFocus'),
+    modeBreak: document.getElementById('modeBreak')
+  };
+
+  var mode = 'focus';        // 'focus' | 'break'
+  var remaining = FOCUS_SECONDS;
+  var running = false;
+  var deadline = 0;          // 计时结束的绝对时间戳
+  var ticker = null;
+  var statusText = '准备开始';
+  var started = false;       // 本轮是否已经启动过（用于区分「开始」和「继续」）
+
+  /* ---------- 今日番茄记录（localStorage） ---------- */
+
+  function todayKey() {
+    var d = new Date();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + m + '-' + day;
+  }
+
+  function loadCount() {
+    try {
+      var data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      return data[todayKey()] || 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function saveCount(n) {
+    var data = {};
+    try {
+      data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    } catch (e) {
+      data = {};
+    }
+    data[todayKey()] = n;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (e) { /* 隐私模式等场景下静默失败 */ }
+  }
+
+  function renderStats() {
+    var n = loadCount();
+    els.count.textContent = n;
+    els.tomatoes.textContent = n > 0 ? '🍅'.repeat(Math.min(n, 20)) : '';
+  }
+
+  /* ---------- 提示音（Web Audio，无需外部音频文件） ---------- */
+
+  function playSound() {
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) { return; }
+    var ctx = new Ctx();
+    var now = ctx.currentTime;
+    // 三声短促的提示音
+    [0, 0.45, 0.9].forEach(function (offset) {
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, now + offset);
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.3, now + offset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.35);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.4);
+    });
+    setTimeout(function () { ctx.close(); }, 1600);
+  }
+
+  /* ---------- 渲染 ---------- */
+
+  function formatTime(sec) {
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function totalFor(m) {
+    return m === 'focus' ? FOCUS_SECONDS : BREAK_SECONDS;
+  }
+
+  function render() {
+    els.time.textContent = formatTime(remaining);
+    els.status.textContent = statusText;
+
+    var ratio = remaining / totalFor(mode);
+    els.progress.style.strokeDashoffset = String(CIRCUMFERENCE * (1 - ratio));
+
+    var isFocus = mode === 'focus';
+    document.documentElement.style.setProperty('--accent', isFocus ? 'var(--focus)' : 'var(--break)');
+    els.modeFocus.classList.toggle('active', isFocus);
+    els.modeBreak.classList.toggle('active', !isFocus);
+    els.startBtn.textContent = running ? '暂停' : (started ? '继续' : '开始');
+  }
+
+  /* ---------- 计时逻辑 ---------- */
+
+  function tick() {
+    var left = Math.round((deadline - Date.now()) / 1000);
+    if (left <= 0) {
+      remaining = 0;
+      render();
+      finish();
+      return;
+    }
+    if (left !== remaining) {
+      remaining = left;
+      render();
+    }
+  }
+
+  function startTicker() {
+    if (ticker) { clearInterval(ticker); }
+    ticker = setInterval(tick, 200);
+  }
+
+  function stopTicker() {
+    if (ticker) { clearInterval(ticker); ticker = null; }
+  }
+
+  function start() {
+    if (running) { return; }
+    running = true;
+    started = true;
+    deadline = Date.now() + remaining * 1000;
+    statusText = mode === 'focus' ? '专注中…' : '休息中…';
+    startTicker();
+    render();
+  }
+
+  function pause() {
+    if (!running) { return; }
+    running = false;
+    stopTicker();
+    statusText = '已暂停';
+    render();
+  }
+
+  function reset() {
+    running = false;
+    started = false;
+    stopTicker();
+    remaining = totalFor(mode);
+    statusText = '准备开始';
+    render();
+  }
+
+  function finish() {
+    running = false;
+    started = false;
+    stopTicker();
+    playSound();
+
+    if (mode === 'focus') {
+      saveCount(loadCount() + 1);
+      renderStats();
+      mode = 'break';
+      statusText = '专注完成，休息一下';
+    } else {
+      mode = 'focus';
+      statusText = '休息结束，继续加油';
+    }
+
+    remaining = totalFor(mode);
+    render();
+  }
+
+  els.startBtn.addEventListener('click', function () {
+    running ? pause() : start();
+  });
+  els.resetBtn.addEventListener('click', reset);
+
+  renderStats();
+  render();
+})();
+</script>
+</body>
+</html>
